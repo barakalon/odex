@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "odex"
+version = "0.0.1"
+description = "Python object index for fast, declarative retrieval"
+authors = ["Barak Alon"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/barakalon/odex"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+sqlglot = "*"
+typing_extensions = "*"
+
+
+[tool.poetry.group.dev.dependencies]
+ruff = "*"
+ruamel-yaml = "*"
+mypy = "*"
+pre-commit = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
