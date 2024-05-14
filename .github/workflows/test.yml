@@ -19,7 +19,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python install poetry
+        python -m pip install poetry
         poetry install --with dev
     - name: Run unit tests
       run: |
