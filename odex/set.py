@@ -13,9 +13,9 @@ from typing import (
     Optional,
     Iterable,
     Iterator,
+    MutableSet,
 )
 
-from collections.abc import MutableSet
 from odex.index import Index
 from odex.optimize import Chain, Rule
 from odex.parse import Parser
