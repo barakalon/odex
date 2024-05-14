@@ -1,0 +1,35 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: ruff check
+          --force-exclude --fix
+          --ignore E741
+        language: python
+        types_or: [python, pyi]
+        require_serial: true
+        additional_dependencies: []
+        files: ^(odex/|tests/)
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format
+          --force-exclude
+          --line-length 100
+        language: python
+        types_or: [python, pyi]
+        require_serial: true
+        files: ^(odex/|tests/)
+      - id: mypy
+        name: mypy
+        entry: mypy odex tests
+        language: system
+        types: [ python ]
+        files: ^(odex/|tests/)
+        pass_filenames: false
+      - id: poetry-check
+        name: poetry-check
+        entry: poetry check
+        language: system
+        require_serial: true
+        pass_filenames: false
