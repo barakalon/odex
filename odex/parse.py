@@ -38,6 +38,8 @@ class Converter:
             exp.Literal: self._convert_literal,
             exp.Column: self._convert_column,
             exp.In: self._convert_in,
+            exp.Null: lambda e: Literal(None),
+            exp.Boolean: lambda e: Literal(e.this),
         }
 
     def convert(self, expression: exp.Expression) -> Condition:
