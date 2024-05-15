@@ -108,12 +108,8 @@ class IndexedSet(MutableSet[T]):
         self.update(self.objs)
 
         self.executors: Dict[Type[Plan], Callable[[Plan], Set[T]]] = {
-            ScanFilter: lambda plan: {o for o in self.objs if self.match(plan.condition, o)},  # type: ignore
-            Filter: lambda plan: {
-                o
-                for o in self.execute(plan.input)  # type: ignore
-                if self.match(plan.condition, o)  # type: ignore
-            },
+            ScanFilter: lambda plan: self._execute_filter(self.objs, plan.condition),  # type: ignore
+            Filter: lambda plan: self._execute_filter(self.execute(plan.input), plan.condition),  # type: ignore
             Union: lambda plan: set.union(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             Intersect: lambda plan: intersect(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             IndexLookup: lambda plan: plan.index.lookup(plan.value),  # type: ignore
@@ -254,3 +250,8 @@ class IndexedSet(MutableSet[T]):
         for indexes in self.indexes.values():
             for index in indexes:
                 yield index
+
+    def _execute_filter(self, objs: Set[T], condition: Condition) -> Set[T]:
+        if isinstance(condition, Literal):
+            return objs if condition.value else set()
+        return {o for o in objs if self.match(condition, o)}

@@ -49,6 +49,23 @@ setups:
     result:
       - 0
       - 1
+  - title: TRUE filter
+    condition: 'TRUE'
+    plan: |-
+      ScanFilter: True
+    optimized_plan: |-
+      ScanFilter: True
+    result:
+      - 0
+      - 1
+      - 2
+  - title: FALSE filter
+    condition: 'FALSE'
+    plan: |-
+      ScanFilter: False
+    optimized_plan: |-
+      ScanFilter: False
+    result: []
 - objects:
   - a: 1
     b: 2
