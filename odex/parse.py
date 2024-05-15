@@ -35,11 +35,13 @@ class Converter:
             exp.And: lambda e: self._convert_binary(cond.And, e),
             exp.Or: lambda e: self._convert_binary(cond.Or, e),
             exp.Not: lambda e: self._convert_unary(cond.Not, e),
+            exp.BitwiseNot: lambda e: self._convert_unary(cond.Invert, e),
             exp.Literal: self._convert_literal,
             exp.Column: self._convert_column,
             exp.In: self._convert_in,
             exp.Null: lambda e: Literal(None),
             exp.Boolean: lambda e: Literal(e.this),
+            exp.Paren: lambda e: self.convert(e.this),
         }
 
     def convert(self, expression: exp.Expression) -> Condition:

@@ -107,13 +107,12 @@ class IndexLookup(Plan):
 
     index: "Index"
     value: Any
-    cost: int
 
     def to_s(self, depth=0):
         return f"IndexLookup: {self.index} = {self.value}"
 
     def __deepcopy__(self, memodict):
-        return IndexLookup(index=self.index, value=deepcopy(self.value), cost=self.cost)
+        return IndexLookup(index=self.index, value=deepcopy(self.value))
 
 
 class Planner:

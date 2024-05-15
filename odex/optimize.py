@@ -1,9 +1,9 @@
-from typing import Dict, Type, Callable, Sequence, cast
+from typing import Callable, Sequence
 from typing_extensions import Protocol
 
-from odex.condition import and_
+from odex.condition import and_, BinOp, Attribute
 from odex.context import Context
-from odex.plan import Plan, SetOp, Intersect, Filter, ScanFilter, Union, IndexLookup
+from odex.plan import Plan, SetOp, Intersect, Filter, ScanFilter
 
 
 class Rule(Protocol):
@@ -53,14 +53,21 @@ class UseIndex(TransformerRule):
 
     def transform(self, plan: Plan, ctx: Context) -> Plan:
         if isinstance(plan, ScanFilter):
-            best_plan: Plan = plan
-            best_cost = len(ctx.objs)
-            for idx in ctx.indexes:
-                match = idx.match(plan.condition)
-                if match:
-                    if best_cost is None or match.cost <= best_cost:
-                        best_plan, best_cost = match, match.cost
-            return best_plan
+            condition = plan.condition
+            if isinstance(condition, BinOp):
+                l, r = condition.left, condition.right
+
+                if isinstance(l, Attribute) and not isinstance(r, Attribute):
+                    name, value = l.name, r
+                elif isinstance(r, Attribute) and not isinstance(l, Attribute):
+                    name, value = r.name, l
+                else:
+                    return plan
+
+                for idx in ctx.indexes.get(name) or []:
+                    match = idx.match(condition, value)
+                    if match:
+                        return match
 
         return plan
 
@@ -93,37 +100,10 @@ class CombineFilters(TransformerRule):
         return plan
 
 
-class OrderIntersects(Rule):
-    """Reorder intersections so that the plans with the smallest cost are first"""
-
-    def __init__(self) -> None:
-        self.estimators: Dict[Type[Plan], Callable[[Plan, Context], int]] = {
-            ScanFilter: lambda plan, ctx: len(ctx.objs),
-            Filter: lambda plan, ctx: self._estimate(cast(Filter, plan).input, ctx),
-            IndexLookup: lambda plan, ctx: cast(IndexLookup, plan).cost,
-            Union: lambda plan, ctx: max(self._estimate(i, ctx) for i in cast(Union, plan).inputs),
-            Intersect: self._estimate_intersect,
-        }
-
-    def __call__(self, plan: Plan, ctx: Context) -> Plan:
-        self._estimate(plan, ctx)
-        return plan
-
-    def _estimate(self, plan: Plan, ctx: Context) -> int:
-        estimator = self.estimators.get(plan.__class__)
-        return estimator(plan, ctx) if estimator else len(ctx.objs)
-
-    def _estimate_intersect(self, plan: Plan, ctx: Context) -> int:
-        plan = cast(Intersect, plan)
-        costs = sorted(((self._estimate(i, ctx), i) for i in plan.inputs), key=lambda t: t[0])
-        plan.inputs = [i[1] for i in costs]
-        return costs[0][0]
-
-
 class Chain(Rule):
     """Chain multiple rules together"""
 
-    DEFAULT_RULES = (MergeSetOps(), UseIndex(), CombineFilters(), OrderIntersects())
+    DEFAULT_RULES = (MergeSetOps(), UseIndex(), CombineFilters())
 
     def __init__(self, rules: Sequence[Rule] = DEFAULT_RULES):
         self.rules = list(rules)
@@ -131,6 +111,4 @@ class Chain(Rule):
     def __call__(self, plan: Plan, ctx: Context) -> Plan:
         for rule in self.rules:
             plan = rule(plan, ctx)
-            # print(rule)
-            # print(plan)
         return plan

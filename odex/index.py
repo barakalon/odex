@@ -1,8 +1,8 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar, Set, Any, Optional, Iterable, Dict
+from typing import Generic, TypeVar, Set, Any, Optional, Iterable, Dict, List
 from typing_extensions import Protocol
 
-from odex.condition import Condition, Eq, Literal, Attribute, In
+from odex.condition import Condition, Eq, Literal, In, BinOp
 from odex.context import Context
 from odex.plan import IndexLookup
 
@@ -10,6 +10,8 @@ T = TypeVar("T")
 
 
 class Index(Protocol[T]):
+    attributes: List[str]
+
     @abstractmethod
     def add(self, objs: Set[T], ctx: Context[T]) -> None:
         """Add `objs` to the index"""
@@ -19,12 +21,15 @@ class Index(Protocol[T]):
         """Remove `objs` from the index"""
 
     @abstractmethod
-    def match(self, condition: Condition) -> "Optional[IndexLookup]":
+    def match(self, condition: BinOp, operand: Condition) -> "Optional[IndexLookup]":
         """
         Determine if this index can serve the given `condition`.
 
+        This assumes the optimizer has already found which side of the condition is the attribute.
+
         Args:
-            condition: logical expression
+            condition: the entire binary operator
+            operand: the side of the binary operator opposite the attribute
         Returns:
             `None` if this index can't serve the condition.
             `IndexLoop` plan if it can.
@@ -59,6 +64,7 @@ class HashIndex(Generic[T], Index[T]):
 
     def __init__(self, attr: str):
         self.attr = attr
+        self.attributes = [attr]
         self.idx: Dict[Any, Set[T]] = {}
 
     def add(self, objs: Set[T], ctx: Context[T]) -> None:
@@ -74,30 +80,25 @@ class HashIndex(Generic[T], Index[T]):
     def lookup(self, value: Any) -> Set[T]:
         return self.idx.get(value) or set()
 
-    def match(self, condition: Condition) -> Optional[IndexLookup]:
-        value = self._match(condition)
+    def match(self, condition: BinOp, operand: Condition) -> "Optional[IndexLookup]":
+        value = self._match(condition, operand)
         if value is _NotFound:
             return None
-        objs = self.idx.get(value) or set()
-        return IndexLookup(index=self, cost=len(objs), value=value)
+        return IndexLookup(index=self, value=value)
 
     def _extract_values(self, obj: T, ctx: Context[T]) -> Iterable[Any]:
         yield ctx.getattr(obj, self.attr)
 
-    def _match(self, condition: Condition) -> Any:
-        if isinstance(condition, Eq):
-            l, r = condition.left, condition.right
-            if isinstance(l, Attribute) and l.name == self.attr and isinstance(r, Literal):
-                return r.value
-            elif isinstance(r, Attribute) and r.name == self.attr and isinstance(l, Literal):
-                return l.value
+    def _match(self, condition: BinOp, operand: Condition) -> Any:
+        if isinstance(condition, Eq) and isinstance(operand, Literal):
+            return operand.value
         return _NotFound
 
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.attr})"
 
 
-class MultiHashIndex(Generic[T], HashIndex[T]):
+class InvertedIndex(Generic[T], HashIndex[T]):
     """
     Same as a `HashIndex`, except this assumes the attribute is a collection of values.
 
@@ -108,9 +109,7 @@ class MultiHashIndex(Generic[T], HashIndex[T]):
         for val in ctx.getattr(obj, self.attr):
             yield val
 
-    def _match(self, condition: Condition) -> Any:
-        if isinstance(condition, In):
-            member, container = condition.left, condition.right
-            if isinstance(member, Literal) and isinstance(container, Attribute):
-                return member.value
+    def _match(self, condition: BinOp, operand: Condition) -> Any:
+        if isinstance(condition, In) and operand is condition.left and isinstance(operand, Literal):
+            return operand.value
         return _NotFound

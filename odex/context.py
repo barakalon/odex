@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from typing import Any, TYPE_CHECKING, Set, TypeVar, List
+from typing import Any, Dict, TYPE_CHECKING, Set, TypeVar, List
 from typing_extensions import Protocol
 
 if TYPE_CHECKING:
@@ -13,7 +13,7 @@ T = TypeVar("T")
 class Context(Protocol[T]):
     """Interface for filter context, so `IndexedSet` can pass context to optimizers"""
 
-    indexes: "List[Index]"
+    indexes: "Dict[str, List[Index]]"
     objs: Set[T]
     attrs: "Attributes"
 
@@ -24,7 +24,7 @@ class Context(Protocol[T]):
 class SimpleContext(Context[T]):
     """Context as a dataclass. Intended for testing."""
 
-    indexes: "List[Index]" = field(default_factory=list)
+    indexes: "Dict[str, List[Index]]" = field(default_factory=dict)
     objs: Set[T] = field(default_factory=set)
     attrs: "Attributes" = field(default_factory=dict)
 

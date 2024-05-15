@@ -14,6 +14,7 @@ from typing import (
     Iterable,
     Iterator,
     MutableSet,
+    Sequence,
 )
 
 from odex.index import Index
@@ -22,6 +23,7 @@ from odex.parse import Parser
 from odex.plan import Plan, Union, Intersect, ScanFilter, Filter, Planner, IndexLookup
 from odex import condition as cond
 from odex.condition import BinOp, UnaryOp, Attribute, Literal, Condition
+from odex.utils import intersect
 
 T = TypeVar("T", bound=Hashable)
 
@@ -86,7 +88,7 @@ class IndexedSet(MutableSet[T]):
     def __init__(
         self,
         objs: Optional[Iterable[T]] = None,
-        indexes: Optional[List[Index[T]]] = None,
+        indexes: Optional[Sequence[Index[T]]] = None,
         attrs: Optional[Attributes] = None,
         parser: Optional[Parser] = None,
         planner: Optional[Planner] = None,
@@ -97,7 +99,11 @@ class IndexedSet(MutableSet[T]):
         self.optimizer = optimizer or Chain()
         self.parser = parser or Parser()
         self.attrs = attrs or {}
-        self.indexes = indexes or []
+        self.indexes: Dict[str, List[Index]] = {}
+        for index in indexes or []:
+            for attr in index.attributes:
+                self.indexes.setdefault(attr, []).append(index)
+
         self.update(self.objs)
 
         self.executors: Dict[Type[Plan], Callable[[Plan], Set[T]]] = {
@@ -108,7 +114,7 @@ class IndexedSet(MutableSet[T]):
                 if self.match(plan.condition, o)  # type: ignore
             },
             Union: lambda plan: set.union(*(self.execute(i) for i in plan.inputs)),  # type: ignore
-            Intersect: lambda plan: set.intersection(*(self.execute(i) for i in plan.inputs)),  # type: ignore
+            Intersect: lambda plan: intersect(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             IndexLookup: lambda plan: plan.index.lookup(plan.value),  # type: ignore
         }
 
@@ -211,12 +217,12 @@ class IndexedSet(MutableSet[T]):
 
     def add(self, obj: T) -> None:
         self.objs.add(obj)
-        for index in self.indexes:
+        for index in self._iter_indexes():
             index.add({obj}, self)
 
     def discard(self, obj: T) -> None:
         self.objs.discard(obj)
-        for index in self.indexes:
+        for index in self._iter_indexes():
             index.remove({obj}, self)
 
     def __contains__(self, x: Any) -> bool:
@@ -231,10 +237,15 @@ class IndexedSet(MutableSet[T]):
 
     def update(self, objs: Set[T]) -> None:
         self.objs.update(objs)
-        for index in self.indexes:
+        for index in self._iter_indexes():
             index.add(objs, self)
 
     def difference_update(self, objs: Set[T]) -> None:
         self.objs.difference_update(objs)
-        for index in self.indexes:
+        for index in self._iter_indexes():
             index.remove(objs, self)
+
+    def _iter_indexes(self) -> Iterator[Index]:
+        for indexes in self.indexes.values():
+            for index in indexes:
+                yield index

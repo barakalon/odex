@@ -44,7 +44,7 @@ setups:
   - type: HashIndex
     attr: b
   tests:
-  - title: Reorder intersects, a first
+  - title: Intersection of lookups
     condition: a = 1 AND b = 2
     plan: |-
       Intersect
@@ -52,40 +52,28 @@ setups:
         - ScanFilter: b = 2
     optimized_plan: |-
       Intersect
-        - IndexLookup: HashIndex(b) = 2
         - IndexLookup: HashIndex(a) = 1
+        - IndexLookup: HashIndex(b) = 2
     result:
     - 0
-  - title: Reorder intersects, b first
-    condition: a = 2 AND b = 3
-    plan: |-
-      Intersect
-        - ScanFilter: a = 2
-        - ScanFilter: b = 3
-    optimized_plan: |-
-      Intersect
-        - IndexLookup: HashIndex(a) = 2
-        - IndexLookup: HashIndex(b) = 3
-    result:
-    - 3
 - objects:
   - a: [1, 2]
   - a: [2, 3]
   - a: [3, 4]
   indexes:
-  - type: MultiHashIndex
+  - type: InvertedIndex
     attr: a
   tests:
-  - title: MultiHashIndex
+  - title: InvertedIndex
     condition: 2 IN a
     plan: |-
       ScanFilter: 2 IN a
     optimized_plan: |-
-      IndexLookup: MultiHashIndex(a) = 2
+      IndexLookup: InvertedIndex(a) = 2
     result:
     - 0
     - 1
-  - title: MultiHashIndex OR
+  - title: InvertedIndex OR
     condition: 2 IN a OR 3 IN a
     plan: |-
       Union
@@ -93,8 +81,8 @@ setups:
         - ScanFilter: 3 IN a
     optimized_plan: |-
       Union
-        - IndexLookup: MultiHashIndex(a) = 2
-        - IndexLookup: MultiHashIndex(a) = 3
+        - IndexLookup: InvertedIndex(a) = 2
+        - IndexLookup: InvertedIndex(a) = 3
     result:
     - 0
     - 1
