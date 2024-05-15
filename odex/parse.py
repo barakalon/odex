@@ -1,4 +1,4 @@
-from typing import Callable, TypeVar, Dict, Type, cast, Optional
+from typing import Callable, TypeVar, Dict, Type, cast, Optional, Union
 
 from odex import condition as cond
 from odex.condition import Condition, Literal, Attribute, BinOp, UnaryOp
@@ -81,6 +81,12 @@ class Converter:
         field = expression.args.get("field")
         if field:
             return cond.In(left=self.convert(expression.this), right=Attribute(name=field.name))
+        expressions = expression.expressions
+        if expressions:
+            return cond.In(
+                left=self.convert(expression.this),
+                right=cond.Array([self.convert(i) for i in expressions]),
+            )
         raise ValueError(f"Unsupported sqlglot In: {expression}")
 
 
@@ -91,8 +97,13 @@ class Parser:
         self.dialect = dialect or Dialect()
         self.converter = converter or Converter()
 
-    def parse(self, expression: str) -> Condition:
-        ast = self.dialect.parse_into(exp.Condition, expression)[0]
-        if not ast:
-            raise ValueError(f"Failed to parse expression: {expression}")
-        return self.converter.convert(ast)
+    def parse(self, expression: Union[str, exp.Expression]) -> Condition:
+        if isinstance(expression, str):
+            ast = self.dialect.parse_into(exp.Condition, expression)[0]
+
+            if not ast:
+                raise ValueError(f"Failed to parse expression: {expression}")
+
+            expression = ast
+
+        return self.converter.convert(expression)

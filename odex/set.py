@@ -3,7 +3,6 @@ import operator
 from typing import (
     TypeVar,
     Set,
-    Hashable,
     Any,
     Callable,
     Type,
@@ -17,6 +16,8 @@ from typing import (
     Sequence,
 )
 
+from sqlglot import exp
+
 from odex.index import Index
 from odex.optimize import Chain, Rule
 from odex.parse import Parser
@@ -25,9 +26,9 @@ from odex import condition as cond
 from odex.condition import BinOp, UnaryOp, Attribute, Literal, Condition
 from odex.utils import intersect
 
-T = TypeVar("T", bound=Hashable)
+T = TypeVar("T")
 
-Attributes = Dict[str, Callable[[T, str], Any]]
+Attributes = Dict[str, Callable[[T], Any]]
 
 
 class IndexedSet(MutableSet[T]):
@@ -133,11 +134,12 @@ class IndexedSet(MutableSet[T]):
         self.matchers: Dict[Type[Condition], Callable[[Condition, T], Any]] = {
             Literal: lambda condition, obj: condition.value,  # type: ignore
             Attribute: lambda condition, obj: self.getattr(obj, condition.name),  # type: ignore
+            cond.Array: lambda condition, obj: {self.match(i, obj) for i in condition.items},  # type: ignore
             **{klass: match_binop(op) for klass, op in self.BINOPS.items()},  # type: ignore
             **{klass: match_unaryop(op) for klass, op in self.UNARY_OPS.items()},  # type: ignore
         }
 
-    def filter(self, condition: UnionType[Condition, str]) -> Set[T]:
+    def filter(self, condition: UnionType[Condition, str, exp.Expression]) -> Set[T]:
         """
         Apply a logical expression to this set, returning a set of the matching members.
 
@@ -157,7 +159,7 @@ class IndexedSet(MutableSet[T]):
         plan = self.optimize(plan)
         return self.execute(plan)
 
-    def plan(self, condition: UnionType[Condition, str]) -> Plan:
+    def plan(self, condition: UnionType[Condition, str, exp.Expression]) -> Plan:
         """
         Build a query plan from a condition.
 
@@ -166,7 +168,7 @@ class IndexedSet(MutableSet[T]):
         Returns:
             Query plan
         """
-        if isinstance(condition, str):
+        if isinstance(condition, (str, exp.Expression)):
             condition = self.parser.parse(condition)
         return self.planner.plan(condition)
 
@@ -213,7 +215,10 @@ class IndexedSet(MutableSet[T]):
 
     def getattr(self, obj: T, item: str) -> Any:
         """Get the attribute `item` from `obj`"""
-        return self.attrs.get(item, getattr)(obj, item)
+        attr = self.attrs.get(item)
+        if attr:
+            return attr(obj)
+        return getattr(obj, item)
 
     def add(self, obj: T) -> None:
         self.objs.add(obj)

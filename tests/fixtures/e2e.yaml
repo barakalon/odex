@@ -29,6 +29,26 @@ setups:
         - IndexLookup: HashIndex(a) = 2
     result:
     - 1
+  - title: IN condition, indexes
+    condition: a IN (1, 2)
+    plan: |-
+      ScanFilter: a IN (1, 2)
+    optimized_plan: |-
+      Union
+        - IndexLookup: HashIndex(a) = 1
+        - IndexLookup: HashIndex(a) = 2
+    result:
+      - 0
+      - 1
+  - title: IN condition, no index
+    condition: b IN (1, 2)
+    plan: |-
+      ScanFilter: b IN (1, 2)
+    optimized_plan: |-
+      ScanFilter: b IN (1, 2)
+    result:
+      - 0
+      - 1
 - objects:
   - a: 1
     b: 2

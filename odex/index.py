@@ -1,10 +1,10 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar, Set, Any, Optional, Iterable, Dict, List
+from typing import Generic, TypeVar, Set, Any, Optional, Iterable, Dict, List, cast
 from typing_extensions import Protocol
 
-from odex.condition import Condition, Eq, Literal, In, BinOp
+from odex.condition import Condition, Eq, Literal, In, BinOp, Array
 from odex.context import Context
-from odex.plan import IndexLookup
+from odex.plan import Plan, IndexLookup, Union
 
 T = TypeVar("T")
 
@@ -21,7 +21,7 @@ class Index(Protocol[T]):
         """Remove `objs` from the index"""
 
     @abstractmethod
-    def match(self, condition: BinOp, operand: Condition) -> "Optional[IndexLookup]":
+    def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
         """
         Determine if this index can serve the given `condition`.
 
@@ -80,11 +80,21 @@ class HashIndex(Generic[T], Index[T]):
     def lookup(self, value: Any) -> Set[T]:
         return self.idx.get(value) or set()
 
-    def match(self, condition: BinOp, operand: Condition) -> "Optional[IndexLookup]":
-        value = self._match(condition, operand)
-        if value is _NotFound:
-            return None
-        return IndexLookup(index=self, value=value)
+    def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
+        if isinstance(condition, Eq) and isinstance(operand, Literal):
+            return IndexLookup(index=self, value=operand.value)
+        if (
+            isinstance(condition, In)
+            and operand is condition.right
+            and isinstance(operand, Array)
+            and all(isinstance(i, Literal) for i in operand.items)
+        ):
+            return Union(
+                inputs=[
+                    IndexLookup(index=self, value=cast(Literal, i).value) for i in operand.items
+                ]
+            )
+        return None
 
     def _extract_values(self, obj: T, ctx: Context[T]) -> Iterable[Any]:
         yield ctx.getattr(obj, self.attr)
@@ -109,7 +119,7 @@ class InvertedIndex(Generic[T], HashIndex[T]):
         for val in ctx.getattr(obj, self.attr):
             yield val
 
-    def _match(self, condition: BinOp, operand: Condition) -> Any:
+    def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
         if isinstance(condition, In) and operand is condition.left and isinstance(operand, Literal):
-            return operand.value
-        return _NotFound
+            return IndexLookup(index=self, value=operand.value)
+        return None

@@ -5,7 +5,7 @@ Logical conditions. These make up the nodes of a syntax tree.
 from dataclasses import dataclass
 from functools import reduce
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, List
 
 
 class Condition:
@@ -102,6 +102,15 @@ class Literal(Condition):
 
     def __str__(self) -> str:
         return str(self.value)
+
+
+@dataclass
+class Array(Condition):
+    items: List[Condition]
+
+    def __str__(self) -> str:
+        items = ", ".join(str(i) for i in self.items)
+        return f"({items})"
 
 
 @dataclass
