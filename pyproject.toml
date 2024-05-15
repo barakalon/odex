@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "odex"
-version = "0.0.2"
+version = "0.0.3"
 description = "Python object index for fast, declarative retrieval"
 authors = ["Barak Alon"]
 license = "MIT"
