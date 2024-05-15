@@ -1,6 +1,6 @@
 # odex
 
-Python object index for fast, declarative retrieval.
+Python object index for fast, declarative retrieval
 
 ## Install
 
@@ -13,32 +13,31 @@ pip install odex
 Odex provides a set-like collection called `IndexedSet`:
 
 ```python
+from collections import namedtuple
 from odex import IndexedSet, HashIndex, attr, and_
 
-class X:
-    def __init__(self, a, b):
-        self.a = a
-        self.b = b
+X = namedtuple("X", ["a", "b"])
 
-objs = [
-    X(a=1, b=4),
-    X(a=2, b=5),
-    X(a=2, b=6),
-    X(a=3, b=7),
-]
-        
-iset = IndexedSet(objs, indexes=[HashIndex("a")])
+iset = IndexedSet(
+    [
+        X(a=1, b=4),
+        X(a=2, b=5),
+        X(a=2, b=6),
+        X(a=3, b=7),
+    ], 
+    indexes=[HashIndex("a")]
+)
 
 # Filter objects with SQL-like expressions:
-assert iset.filter("a = 2 AND b = 5") == {objs[1]}
+iset.filter("a = 2 AND b = 5") == {X(a=2, b=5)}
 
 # Or, using the fluent interface:
-assert iset.filter(
+iset.filter(
     and_(
         attr("a").eq(2),
         attr("b").eq(5)
     )
-) == {objs[1]}
+) == {X(a=2, b=5)}
 ```
 
 ## Related projects
