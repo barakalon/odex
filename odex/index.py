@@ -1,12 +1,12 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar, Set, Any, Optional, Iterable, List, cast, Dict, Type
+from typing import Generic, TypeVar, Set, Any, Optional, Iterable, List, cast, Dict, Type, Callable
 from typing_extensions import Protocol
 
 from sortedcontainers import SortedDict  # type: ignore
 
 from odex.condition import Condition, Eq, Literal, In, BinOp, Array, Le, Lt, Ge, Gt
 from odex.context import Context
-from odex.plan import Plan, IndexLookup, Union, Range, UNSET, IndexRange
+from odex.plan import Plan, IndexLookup, Union, Range, IndexRange, Bound, Unset
 
 T = TypeVar("T")
 
@@ -49,12 +49,12 @@ class Index(Protocol[T]):
         """
 
     @abstractmethod
-    def range(self, range: Range) -> Set[T]:
+    def range(self, rng: Range) -> Set[T]:
         """
-        Get members from the index.
+        Get members from the index base on a range of values.
 
         Args:
-            range: Range
+            rng: Range
         Returns:
             Result set
         """
@@ -95,7 +95,7 @@ class HashIndex(Generic[T], Index[T]):
     def lookup(self, value: Any) -> Set[T]:
         return self.idx.get(value) or set()
 
-    def range(self, range: Range) -> Set[T]:
+    def range(self, rng: Range) -> Set[T]:
         raise ValueError(f"{self.__class__.__name__} does not support range queries")
 
     def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
@@ -128,51 +128,47 @@ class SortedDictIndex(Generic[T], HashIndex[T]):
     """
 
     idx: SortedDict
-    COMPARISON = (Lt, Le, Gt, Ge)
+
     INVERSE_COMPARISONS: Dict[Type[BinOp], Type[BinOp]] = {
         Lt: Gt,
         Gt: Lt,
         Le: Ge,
         Ge: Le,
     }
+    COMPARISONS = tuple(INVERSE_COMPARISONS)
+    COMPARISON_RANGES: Dict[Type[BinOp], Callable[[Any], Range]] = {
+        Lt: lambda val: Range(right=Bound(val, False)),
+        Gt: lambda val: Range(left=Bound(val, False)),
+        Le: lambda val: Range(right=Bound(val, True)),
+        Ge: lambda val: Range(left=Bound(val, True)),
+    }
 
     def _create_index(self) -> SortedDict:
         return SortedDict()
 
-    def range(self, range: Range[Any]) -> Set[T]:
+    def range(self, rng: Range[Any]) -> Set[T]:
         left = 0
         right = None
-        if range.left is not UNSET:
-            if range.left_inclusive:
-                left = self.idx.bisect_left(range.left)
+        if not isinstance(rng.left, Unset):
+            if rng.left.inclusive:
+                left = self.idx.bisect_left(rng.left.value)
             else:
-                left = self.idx.bisect_right(range.left)
-        if range.right is not UNSET:
-            if range.right_inclusive:
-                right = self.idx.bisect_right(range.right)
+                left = self.idx.bisect_right(rng.left.value)
+        if not isinstance(rng.right, Unset):
+            if rng.right.inclusive:
+                right = self.idx.bisect_right(rng.right.value)
             else:
-                right = self.idx.bisect_left(range.right)
+                right = self.idx.bisect_left(rng.right.value)
 
         groups = self.idx.values()[left:right]
         return set.union(*groups) if groups else set()
 
     def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
-        if isinstance(condition, self.COMPARISON) and isinstance(operand, Literal):
+        if isinstance(condition, self.COMPARISONS) and isinstance(operand, Literal):
             comparison: Type[BinOp] = type(condition)
             if operand is condition.left:
                 comparison = self.INVERSE_COMPARISONS.get(comparison, comparison)
-            if issubclass(comparison, Lt):
-                return IndexRange(
-                    index=self, range=Range(right=operand.value, right_inclusive=False)
-                )
-            if issubclass(comparison, Le):
-                return IndexRange(
-                    index=self, range=Range(right=operand.value, right_inclusive=True)
-                )
-            if issubclass(comparison, Gt):
-                return IndexRange(index=self, range=Range(left=operand.value, left_inclusive=False))
-            if issubclass(comparison, Ge):
-                return IndexRange(index=self, range=Range(left=operand.value, left_inclusive=True))
+            return IndexRange(index=self, range=self.COMPARISON_RANGES[comparison](operand.value))
         return super().match(condition, operand)
 
 

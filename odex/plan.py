@@ -5,7 +5,16 @@ Query plans. These make up the nodes of a query plan.
 from abc import abstractmethod
 from dataclasses import dataclass
 from copy import deepcopy
-from typing import List, Any, Callable, TYPE_CHECKING, Union as UnionType, Tuple, Generic, TypeVar
+from typing import (
+    List,
+    Any,
+    Callable,
+    TYPE_CHECKING,
+    Union as UnionType,
+    Generic,
+    TypeVar,
+    NamedTuple,
+)
 from typing_extensions import Protocol
 
 from odex.condition import Condition, And, Or
@@ -15,10 +24,11 @@ if TYPE_CHECKING:
 
 
 Transformer = Callable[["Plan"], "Plan"]
-T = TypeVar("T")
 
 
 class Unset:
+    """Sentinel type"""
+
     def __repr__(self):
         return "UNSET"
 
@@ -37,6 +47,17 @@ class Comparable(Protocol):
 
 
 C = TypeVar("C", bound=Comparable)
+
+
+class Bound(NamedTuple):
+    value: Comparable
+    inclusive: bool
+
+    def symbol(self) -> str:
+        return "<=" if self.inclusive else "<"
+
+
+OptionalBound = UnionType[Bound, Unset]
 
 
 class Plan(Protocol):
@@ -125,44 +146,34 @@ class Union(SetOp):
 
 @dataclass(frozen=True)
 class Range(Generic[C]):
-    left: UnionType[C, Unset] = UNSET
-    left_inclusive: bool = True
-    right: UnionType[C, Unset] = UNSET
-    right_inclusive: bool = True
+    left: OptionalBound = UNSET
+    right: OptionalBound = UNSET
 
     def combine(self, other: "Range[C]") -> "Range[C]":
-        left, left_inclusive = self._combine_comparison(
-            self.left, self.left_inclusive, other.left, other.left_inclusive, lambda a, b: a > b
-        )
-        right, right_inclusive = self._combine_comparison(
-            self.right, self.right_inclusive, other.right, other.right_inclusive, lambda a, b: a < b
-        )
+        left = self._combine_bounds(self.left, other.left, lambda a, b: a > b)
+        right = self._combine_bounds(self.right, other.right, lambda a, b: a < b)
 
         return Range(
             left=left,
-            left_inclusive=left_inclusive,
             right=right,
-            right_inclusive=right_inclusive,
         )
 
-    def _combine_comparison(
+    def _combine_bounds(
         self,
-        a: UnionType[C, Unset],
-        a_inclusive: bool,
-        b: UnionType[C, Unset],
-        b_inclusive: bool,
-        compare: Callable[[C, C], bool],
-    ) -> Tuple[UnionType[C, Unset], bool]:
+        a: OptionalBound,
+        b: OptionalBound,
+        compare: Callable[[Comparable, Comparable], bool],
+    ) -> OptionalBound:
         if isinstance(a, Unset):
-            return b, b_inclusive
+            return b
         elif isinstance(b, Unset):
-            return a, a_inclusive
+            return a
         elif a == b:
-            return a, a_inclusive and b_inclusive
-        elif compare(a, b):
-            return a, a_inclusive
+            return Bound(a[0], a[1] and b[1])
+        elif compare(a.value, b.value):
+            return a
         else:
-            return b, b_inclusive
+            return b
 
 
 @dataclass
@@ -171,13 +182,13 @@ class IndexRange(Plan):
     range: Range[Any]
 
     def to_s(self, depth=0):
-        left_symbol = "<=" if self.range.left_inclusive else "<"
-        right_symbol = "<=" if self.range.right_inclusive else "<"
         if self.range.left is UNSET:
-            return f"IndexRange: {self.index} {right_symbol} {self.range.right}"
+            assert isinstance(self.range.right, Bound)
+            return f"IndexRange: {self.index} {self.range.right.symbol()} {self.range.right.value}"
         if self.range.right is UNSET:
-            return f"IndexRange: {self.range.left} {left_symbol} {self.index}"
-        return f"IndexRange: {self.range.left} {left_symbol} {self.index} {right_symbol} {self.range.right}"
+            assert isinstance(self.range.left, Bound)
+            return f"IndexRange: {self.range.left.value} {self.range.left.symbol()} {self.index}"
+        return f"IndexRange: {self.range.left.value} {self.range.left.symbol()} {self.index} {self.range.right.symbol()} {self.range.right.value}"
 
     def __deepcopy__(self, memodict):
         return IndexRange(

@@ -3,7 +3,17 @@ from typing_extensions import Protocol
 
 from odex.condition import and_, BinOp, Attribute
 from odex.context import Context
-from odex.plan import Plan, SetOp, Intersect, Filter, ScanFilter, Range, IndexRange, IndexLookup
+from odex.plan import (
+    Plan,
+    SetOp,
+    Intersect,
+    Filter,
+    ScanFilter,
+    Range,
+    IndexRange,
+    IndexLookup,
+    Bound,
+)
 
 if TYPE_CHECKING:
     from odex.index import Index
@@ -86,10 +96,8 @@ class CombineRanges(TransformerRule):
             for i in plan.inputs:
                 if isinstance(i, IndexLookup):
                     rng: Range[Any] = Range(
-                        left=i.value,
-                        right=i.value,
-                        left_inclusive=True,
-                        right_inclusive=True,
+                        left=Bound(i.value, True),
+                        right=Bound(i.value, True),
                     )
                     existing = ranges.get(i.index)
                     ranges[i.index] = existing.combine(rng) if existing else rng
@@ -101,8 +109,14 @@ class CombineRanges(TransformerRule):
 
             inputs: List[Plan] = []
             for index, rng in ranges.items():
-                if rng.left == rng.right and rng.left_inclusive and rng.right_inclusive:
-                    inputs.append(IndexLookup(index=index, value=rng.left))
+                if (
+                    isinstance(rng.left, Bound)
+                    and isinstance(rng.right, Bound)
+                    and rng.left.value == rng.right.value
+                    and rng.left.inclusive
+                    and rng.right.inclusive
+                ):
+                    inputs.append(IndexLookup(index=index, value=rng.left.value))
                 else:
                     inputs.append(
                         IndexRange(
