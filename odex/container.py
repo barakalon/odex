@@ -27,3 +27,6 @@ class Container(Generic[T]):
             return getattr(self.obj, item)
         except AttributeError:
             return self.obj[item]
+
+    def __repr__(self) -> str:
+        return f"<Container {repr(self.obj)}>"

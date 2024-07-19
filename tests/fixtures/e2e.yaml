@@ -6,16 +6,14 @@ setups:
     b: 2
   - a: 3
     b: 3
-  indexes:
-  - type: HashIndex
-    attr: a
+  indexes: [a]
   tests:
   - title: Equality on index
     condition: a = 2
     plan: |-
       ScanFilter: a = 2
     optimized_plan: |-
-      IndexLookup: HashIndex(a) = 2
+      IndexLookup: SortedDictIndex(a) = 2
     result:
     - 1
   - title: Filter chained to index lookup
@@ -26,7 +24,7 @@ setups:
         - ScanFilter: b = 2
     optimized_plan: |-
       Filter: b = 2
-        - IndexLookup: HashIndex(a) = 2
+        - IndexLookup: SortedDictIndex(a) = 2
     result:
     - 1
   - title: IN condition, indexes
@@ -35,11 +33,11 @@ setups:
       ScanFilter: a IN (1, 2)
     optimized_plan: |-
       Union
-        - IndexLookup: HashIndex(a) = 1
-        - IndexLookup: HashIndex(a) = 2
+        - IndexLookup: SortedDictIndex(a) = 1
+        - IndexLookup: SortedDictIndex(a) = 2
     result:
-      - 0
-      - 1
+    - 0
+    - 1
   - title: IN condition, no index
     condition: b IN (1, 2)
     plan: |-
@@ -47,8 +45,8 @@ setups:
     optimized_plan: |-
       ScanFilter: b IN (1, 2)
     result:
-      - 0
-      - 1
+    - 0
+    - 1
   - title: TRUE filter
     condition: 'TRUE'
     plan: |-
@@ -56,9 +54,9 @@ setups:
     optimized_plan: |-
       ScanFilter: True
     result:
-      - 0
-      - 1
-      - 2
+    - 0
+    - 1
+    - 2
   - title: FALSE filter
     condition: 'FALSE'
     plan: |-
@@ -66,6 +64,74 @@ setups:
     optimized_plan: |-
       ScanFilter: False
     result: []
+  - title: <
+    condition: a < 3
+    plan: |-
+      ScanFilter: a < 3
+    optimized_plan: |-
+      IndexRange: SortedDictIndex(a) < 3
+    result:
+    - 0
+    - 1
+  - title: <=
+    condition: a <= 2
+    plan: |-
+      ScanFilter: a <= 2
+    optimized_plan: |-
+      IndexRange: SortedDictIndex(a) <= 2
+    result:
+    - 0
+    - 1
+  - title: '>'
+    condition: a > 1
+    plan: |-
+      ScanFilter: a > 1
+    optimized_plan: |-
+      IndexRange: 1 < SortedDictIndex(a)
+    result:
+    - 1
+    - 2
+  - title: '>='
+    condition: a >= 2
+    plan: |-
+      ScanFilter: a >= 2
+    optimized_plan: |-
+      IndexRange: 2 <= SortedDictIndex(a)
+    result:
+    - 1
+    - 2
+  - title: Range
+    condition: 1 < a AND 3 >= a
+    plan: |-
+      Intersect
+        - ScanFilter: 1 < a
+        - ScanFilter: 3 >= a
+    optimized_plan: |-
+      IndexRange: 1 < SortedDictIndex(a) <= 3
+    result:
+    - 1
+    - 2
+  - title: Invalid Range
+    condition: 1 > a AND 3 <= a
+    plan: |-
+      Intersect
+        - ScanFilter: 1 > a
+        - ScanFilter: 3 <= a
+    optimized_plan: |-
+      IndexRange: 3 <= SortedDictIndex(a) < 1
+    result: []
+  - title: Combining ranges leads to =
+    condition: a > 1 AND a >= 3 AND a <= 3
+    plan: |-
+      Intersect
+        - Intersect
+          - ScanFilter: a > 1
+          - ScanFilter: a >= 3
+        - ScanFilter: a <= 3
+    optimized_plan: |-
+      IndexLookup: SortedDictIndex(a) = 3
+    result:
+    - 2
 - objects:
   - a: 1
     b: 2
@@ -75,11 +141,7 @@ setups:
     b: 3
   - a: 2
     b: 3
-  indexes:
-  - type: HashIndex
-    attr: a
-  - type: HashIndex
-    attr: b
+  indexes: [a, b]
   tests:
   - title: Intersection of lookups
     condition: a = 1 AND b = 2
@@ -89,17 +151,15 @@ setups:
         - ScanFilter: b = 2
     optimized_plan: |-
       Intersect
-        - IndexLookup: HashIndex(a) = 1
-        - IndexLookup: HashIndex(b) = 2
+        - IndexLookup: SortedDictIndex(a) = 1
+        - IndexLookup: SortedDictIndex(b) = 2
     result:
     - 0
 - objects:
   - a: [1, 2]
   - a: [2, 3]
   - a: [3, 4]
-  indexes:
-  - type: InvertedIndex
-    attr: a
+  indexes: [a]
   tests:
   - title: InvertedIndex
     condition: 2 IN a
@@ -124,3 +184,56 @@ setups:
     - 0
     - 1
     - 2
+- objects:
+  - a: 1
+  - a: 2
+  - a: 3
+  - a: 1
+  - a: 2
+  - a: 3
+  indexes: [a]
+  tests:
+  - title: Bisect left (<)
+    condition: a < 3
+    plan: |-
+      ScanFilter: a < 3
+    optimized_plan: |-
+      IndexRange: SortedDictIndex(a) < 3
+    result:
+    - 0
+    - 1
+    - 3
+    - 4
+  - title: Bisect right (<=)
+    condition: a <= 2
+    plan: |-
+      ScanFilter: a <= 2
+    optimized_plan: |-
+      IndexRange: SortedDictIndex(a) <= 2
+    result:
+      - 0
+      - 1
+      - 3
+      - 4
+  - title: Bisect left (>)
+    condition: a > 1
+    plan: |-
+      ScanFilter: a > 1
+    optimized_plan: |-
+      IndexRange: 1 < SortedDictIndex(a)
+    result:
+      - 1
+      - 2
+      - 4
+      - 5
+  - title: Bisect right (>=)
+    condition: a >= 2
+    plan: |-
+      ScanFilter: a >= 2
+    optimized_plan: |-
+      IndexRange: 2 <= SortedDictIndex(a)
+    result:
+      - 1
+      - 2
+      - 4
+      - 5

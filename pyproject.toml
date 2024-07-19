@@ -15,6 +15,7 @@ classifiers = [
 python = "^3.7"
 sqlglot = "*"
 typing_extensions = "*"
+sortedcontainers = "*"
 
 
 [tool.poetry.group.dev.dependencies]

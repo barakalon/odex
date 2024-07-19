@@ -18,10 +18,10 @@ from typing import (
 
 from sqlglot import exp
 
-from odex.index import Index
+from odex.index import Index, InvertedIndex, SortedDictIndex, HashIndex
 from odex.optimize import Chain, Rule
 from odex.parse import Parser
-from odex.plan import Plan, Union, Intersect, ScanFilter, Filter, Planner, IndexLookup
+from odex.plan import Plan, Union, Intersect, ScanFilter, Filter, Planner, IndexLookup, IndexRange
 from odex import condition as cond
 from odex.condition import BinOp, UnaryOp, Attribute, Literal, Condition
 from odex.utils import intersect
@@ -50,6 +50,12 @@ class IndexedSet(MutableSet[T]):
             Example: `{X(a=1), X(a=2)}`
         indexes: Attribute indexes for this set.
             Example: `[HashIndex("a")]`
+
+            If a `str` is given, this will infer the index type from that attribute of the given objects:
+              - Collections (e.g. `tuple`, `list`, `dict`, `set`) use an `InvertedIndex`.
+              - Numbers (e.g. `float`, `int`) use a `SortedDictIndex`.
+              - Everything else gets a `HashIndex`.
+
         attrs: Extend members with extra attribute getters.
             Example: `{"a": lambda obj: obj.get_a()}`
         parser: Override the query parser
@@ -89,7 +95,7 @@ class IndexedSet(MutableSet[T]):
     def __init__(
         self,
         objs: Optional[Iterable[T]] = None,
-        indexes: Optional[Sequence[Index[T]]] = None,
+        indexes: Optional[Sequence[UnionType[Index[T], str]]] = None,
         attrs: Optional[Attributes] = None,
         parser: Optional[Parser] = None,
         planner: Optional[Planner] = None,
@@ -102,6 +108,8 @@ class IndexedSet(MutableSet[T]):
         self.attrs = attrs or {}
         self.indexes: Dict[str, List[Index]] = {}
         for index in indexes or []:
+            if isinstance(index, str):
+                index = self._infer_index(index)
             for attr in index.attributes:
                 self.indexes.setdefault(attr, []).append(index)
 
@@ -113,6 +121,7 @@ class IndexedSet(MutableSet[T]):
             Union: lambda plan: set.union(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             Intersect: lambda plan: intersect(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             IndexLookup: lambda plan: plan.index.lookup(plan.value),  # type: ignore
+            IndexRange: lambda plan: plan.index.range(plan.range),  # type: ignore
         }
 
         def match_binop(op: Callable[[Any, Any], Any]) -> Callable[[BinOp, T], Any]:
@@ -255,3 +264,12 @@ class IndexedSet(MutableSet[T]):
         if isinstance(condition, Literal):
             return objs if condition.value else set()
         return {o for o in objs if self.match(condition, o)}
+
+    def _infer_index(self, attr: str) -> Index[T]:
+        obj = next(iter(self.objs))
+        value = self.getattr(obj, attr)
+        if isinstance(value, (list, tuple, dict, set)):
+            return InvertedIndex(attr)
+        if isinstance(value, (float, int)):
+            return SortedDictIndex(attr)
+        return HashIndex(attr)
