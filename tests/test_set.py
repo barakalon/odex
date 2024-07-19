@@ -6,7 +6,6 @@ from ruamel.yaml import YAML
 
 from odex.set import IndexedSet
 from odex.container import Container
-from odex.index import HashIndex, InvertedIndex
 from odex.condition import attr, or_
 
 
@@ -27,12 +26,7 @@ class TestIndexedSet(TestCase):
             objects = {i: Container(o) for i, o in enumerate(setup["objects"])}
             objects_to_id = {v: k for k, v in objects.items()}
 
-            index_types = {
-                "HashIndex": lambda **kwargs: HashIndex(attr=kwargs["attr"]),
-                "InvertedIndex": lambda **kwargs: InvertedIndex(attr=kwargs["attr"]),
-            }
-            indexes = [index_types[idx["type"]](**idx) for idx in setup["indexes"]]
-            iset = IndexedSet(set(objects.values()), indexes=indexes)
+            iset = IndexedSet(set(objects.values()), indexes=setup["indexes"])
 
             for test in setup["tests"]:
                 title = test["title"]

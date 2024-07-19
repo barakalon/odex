@@ -1,5 +1,9 @@
 from odex.set import IndexedSet as IndexedSet
-from odex.index import HashIndex as HashIndex, InvertedIndex as InvertedIndex
+from odex.index import (
+    HashIndex as HashIndex,
+    InvertedIndex as InvertedIndex,
+    SortedDictIndex as SortedDictIndex,
+)
 from odex.condition import (
     literal as literal,
     attr as attr,

@@ -1,10 +1,12 @@
 from abc import abstractmethod
-from typing import Generic, TypeVar, Set, Any, Optional, Iterable, Dict, List, cast
+from typing import Generic, TypeVar, Set, Any, Optional, Iterable, List, cast, Dict, Type, Callable
 from typing_extensions import Protocol
 
-from odex.condition import Condition, Eq, Literal, In, BinOp, Array
+from sortedcontainers import SortedDict  # type: ignore
+
+from odex.condition import Condition, Eq, Literal, In, BinOp, Array, Le, Lt, Ge, Gt
 from odex.context import Context
-from odex.plan import Plan, IndexLookup, Union
+from odex.plan import Plan, IndexLookup, Union, Range, IndexRange, Bound, Unset
 
 T = TypeVar("T")
 
@@ -46,8 +48,16 @@ class Index(Protocol[T]):
             Result set
         """
 
+    @abstractmethod
+    def range(self, rng: Range) -> Set[T]:
+        """
+        Get members from the index base on a range of values.
 
-_NotFound = object()
+        Args:
+            rng: Range
+        Returns:
+            Result set
+        """
 
 
 class HashIndex(Generic[T], Index[T]):
@@ -62,10 +72,15 @@ class HashIndex(Generic[T], Index[T]):
         attr: name of the attribute to index
     """
 
+    idx: dict
+
     def __init__(self, attr: str):
         self.attr = attr
         self.attributes = [attr]
-        self.idx: Dict[Any, Set[T]] = {}
+        self.idx = self._create_index()
+
+    def _create_index(self) -> dict:
+        return {}
 
     def add(self, objs: Set[T], ctx: Context[T]) -> None:
         for o in objs:
@@ -79,6 +94,9 @@ class HashIndex(Generic[T], Index[T]):
 
     def lookup(self, value: Any) -> Set[T]:
         return self.idx.get(value) or set()
+
+    def range(self, rng: Range) -> Set[T]:
+        raise ValueError(f"{self.__class__.__name__} does not support range queries")
 
     def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
         if isinstance(condition, Eq) and isinstance(operand, Literal):
@@ -99,13 +117,59 @@ class HashIndex(Generic[T], Index[T]):
     def _extract_values(self, obj: T, ctx: Context[T]) -> Iterable[Any]:
         yield ctx.getattr(obj, self.attr)
 
-    def _match(self, condition: BinOp, operand: Condition) -> Any:
-        if isinstance(condition, Eq) and isinstance(operand, Literal):
-            return operand.value
-        return _NotFound
-
     def __str__(self) -> str:
         return f"{self.__class__.__name__}({self.attr})"
+
+
+class SortedDictIndex(Generic[T], HashIndex[T]):
+    """
+    Same as `HashIndex`, except this uses a `sortedcontainers.SortedDict` as the index
+    and supports range queries.
+    """
+
+    idx: SortedDict
+
+    INVERSE_COMPARISONS: Dict[Type[BinOp], Type[BinOp]] = {
+        Lt: Gt,
+        Gt: Lt,
+        Le: Ge,
+        Ge: Le,
+    }
+    COMPARISONS = tuple(INVERSE_COMPARISONS)
+    COMPARISON_RANGES: Dict[Type[BinOp], Callable[[Any], Range]] = {
+        Lt: lambda val: Range(right=Bound(val, False)),
+        Gt: lambda val: Range(left=Bound(val, False)),
+        Le: lambda val: Range(right=Bound(val, True)),
+        Ge: lambda val: Range(left=Bound(val, True)),
+    }
+
+    def _create_index(self) -> SortedDict:
+        return SortedDict()
+
+    def range(self, rng: Range[Any]) -> Set[T]:
+        left = 0
+        right = None
+        if not isinstance(rng.left, Unset):
+            if rng.left.inclusive:
+                left = self.idx.bisect_left(rng.left.value)
+            else:
+                left = self.idx.bisect_right(rng.left.value)
+        if not isinstance(rng.right, Unset):
+            if rng.right.inclusive:
+                right = self.idx.bisect_right(rng.right.value)
+            else:
+                right = self.idx.bisect_left(rng.right.value)
+
+        groups = self.idx.values()[left:right]
+        return set.union(*groups) if groups else set()
+
+    def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
+        if isinstance(condition, self.COMPARISONS) and isinstance(operand, Literal):
+            comparison: Type[BinOp] = type(condition)
+            if operand is condition.left:
+                comparison = self.INVERSE_COMPARISONS.get(comparison, comparison)
+            return IndexRange(index=self, range=self.COMPARISON_RANGES[comparison](operand.value))
+        return super().match(condition, operand)
 
 
 class InvertedIndex(Generic[T], HashIndex[T]):

@@ -1,9 +1,22 @@
-from typing import Callable, Sequence
+from typing import Callable, Sequence, Dict, TYPE_CHECKING, Any, List
 from typing_extensions import Protocol
 
 from odex.condition import and_, BinOp, Attribute
 from odex.context import Context
-from odex.plan import Plan, SetOp, Intersect, Filter, ScanFilter
+from odex.plan import (
+    Plan,
+    SetOp,
+    Intersect,
+    Filter,
+    ScanFilter,
+    Range,
+    IndexRange,
+    IndexLookup,
+    Bound,
+)
+
+if TYPE_CHECKING:
+    from odex.index import Index
 
 
 class Rule(Protocol):
@@ -72,6 +85,54 @@ class UseIndex(TransformerRule):
         return plan
 
 
+class CombineRanges(TransformerRule):
+    """Combine multiple ranges into one"""
+
+    def transform(self, plan: Plan, ctx: Context) -> Plan:
+        if isinstance(plan, Intersect):
+            ranges: Dict[Index, Range] = {}
+            others = []
+
+            for i in plan.inputs:
+                if isinstance(i, IndexLookup):
+                    rng: Range[Any] = Range(
+                        left=Bound(i.value, True),
+                        right=Bound(i.value, True),
+                    )
+                    existing = ranges.get(i.index)
+                    ranges[i.index] = existing.combine(rng) if existing else rng
+                elif isinstance(i, IndexRange):
+                    existing = ranges.get(i.index)
+                    ranges[i.index] = existing.combine(i.range) if existing else i.range
+                else:
+                    others.append(i)
+
+            inputs: List[Plan] = []
+            for index, rng in ranges.items():
+                if (
+                    isinstance(rng.left, Bound)
+                    and isinstance(rng.right, Bound)
+                    and rng.left.value == rng.right.value
+                    and rng.left.inclusive
+                    and rng.right.inclusive
+                ):
+                    inputs.append(IndexLookup(index=index, value=rng.left.value))
+                else:
+                    inputs.append(
+                        IndexRange(
+                            index=index,
+                            range=rng,
+                        )
+                    )
+            inputs.extend(others)
+
+            if len(inputs) == 1:
+                return inputs[0]
+            return Intersect(inputs=inputs)
+
+        return plan
+
+
 class CombineFilters(TransformerRule):
     """Combine multiple filters into one"""
 
@@ -103,7 +164,7 @@ class CombineFilters(TransformerRule):
 class Chain(Rule):
     """Chain multiple rules together"""
 
-    DEFAULT_RULES = (MergeSetOps(), UseIndex(), CombineFilters())
+    DEFAULT_RULES = (MergeSetOps(), UseIndex(), CombineRanges(), CombineFilters())
 
     def __init__(self, rules: Sequence[Rule] = DEFAULT_RULES):
         self.rules = list(rules)
