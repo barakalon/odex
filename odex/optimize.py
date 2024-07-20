@@ -131,12 +131,15 @@ class CombineRanges(TransformerRule):
                     else:
                         new_range = combined
 
-                inputs.append(
-                    IndexRange(
+                if new_range.is_equality():
+                    assert isinstance(new_range.left, Bound)
+                    new_plan: Plan = IndexLookup(index=index, value=new_range.left.value)
+                else:
+                    new_plan = IndexRange(
                         index=index,
                         range=new_range,
                     )
-                )
+                inputs.append(new_plan)
 
             inputs.extend(others)
 
