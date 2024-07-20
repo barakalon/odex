@@ -129,7 +129,7 @@ setups:
           - ScanFilter: a >= 3
         - ScanFilter: a <= 3
     optimized_plan: |-
-      IndexRange: 3 <= SortedDictIndex(a) <= 3
+      IndexLookup: SortedDictIndex(a) = 3
     result:
     - 2
   - title: Conflicting equalities
@@ -260,6 +260,16 @@ setups:
       IndexLookup: HashIndex(a) = 'foo'
     result:
     - 0
+  - title: Duplicate String equality
+    condition: a = 'foo' AND a = 'foo'
+    plan: |-
+      Intersect
+        - ScanFilter: a = 'foo'
+        - ScanFilter: a = 'foo'
+    optimized_plan: |-
+      IndexLookup: HashIndex(a) = 'foo'
+    result:
+      - 0
   - title: Conflicting equalities, string
     condition: a = 'foo' AND a = 'bar'
     plan: |-
