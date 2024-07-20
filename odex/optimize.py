@@ -1,4 +1,5 @@
-from typing import Callable, Sequence, Dict, TYPE_CHECKING, Any, List
+from collections import defaultdict
+from typing import Callable, Sequence, Dict, TYPE_CHECKING, List, Union as UnionType
 from typing_extensions import Protocol
 
 from odex.condition import and_, BinOp, Attribute
@@ -13,6 +14,7 @@ from odex.plan import (
     IndexRange,
     IndexLookup,
     Bound,
+    Empty,
 )
 
 if TYPE_CHECKING:
@@ -90,40 +92,52 @@ class CombineRanges(TransformerRule):
 
     def transform(self, plan: Plan, ctx: Context) -> Plan:
         if isinstance(plan, Intersect):
-            ranges: Dict[Index, Range] = {}
+            # Group the plans by ones that support ranges and by index
+            plans_by_index: Dict[Index, List[UnionType[IndexLookup, IndexRange]]] = defaultdict(
+                list
+            )
             others = []
-
             for i in plan.inputs:
-                if isinstance(i, IndexLookup):
-                    rng: Range[Any] = Range(
-                        left=Bound(i.value, True),
-                        right=Bound(i.value, True),
-                    )
-                    existing = ranges.get(i.index)
-                    ranges[i.index] = existing.combine(rng) if existing else rng
-                elif isinstance(i, IndexRange):
-                    existing = ranges.get(i.index)
-                    ranges[i.index] = existing.combine(i.range) if existing else i.range
+                if isinstance(i, (IndexLookup, IndexRange)):
+                    plans_by_index[i.index].append(i)
                 else:
                     others.append(i)
 
             inputs: List[Plan] = []
-            for index, rng in ranges.items():
-                if (
-                    isinstance(rng.left, Bound)
-                    and isinstance(rng.right, Bound)
-                    and rng.left.value == rng.right.value
-                    and rng.left.inclusive
-                    and rng.right.inclusive
-                ):
-                    inputs.append(IndexLookup(index=index, value=rng.left.value))
-                else:
-                    inputs.append(
-                        IndexRange(
-                            index=index,
-                            range=rng,
-                        )
+
+            for index, plans in plans_by_index.items():
+                if len(plans) == 1:
+                    inputs.append(plans[0])
+                    continue
+
+                ranges = [
+                    # Treat a lookup as a range
+                    Range(
+                        left=Bound(i.value, True),
+                        right=Bound(i.value, True),
                     )
+                    if isinstance(i, IndexLookup)
+                    else i.range
+                    for i in plans
+                ]
+
+                new_range = ranges[0]
+                for rng in ranges[1:]:
+                    combined = new_range.combine(rng)
+
+                    # None means there is a range that always evaluates to False
+                    if combined is None:
+                        return Empty()
+                    else:
+                        new_range = combined
+
+                inputs.append(
+                    IndexRange(
+                        index=index,
+                        range=new_range,
+                    )
+                )
+
             inputs.extend(others)
 
             if len(inputs) == 1:

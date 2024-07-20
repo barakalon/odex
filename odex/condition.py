@@ -101,7 +101,7 @@ class Literal(Condition):
     value: Any
 
     def __str__(self) -> str:
-        return str(self.value)
+        return repr(self.value)
 
 
 @dataclass
