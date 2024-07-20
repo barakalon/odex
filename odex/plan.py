@@ -14,6 +14,7 @@ from typing import (
     Generic,
     TypeVar,
     NamedTuple,
+    Optional,
 )
 from typing_extensions import Protocol
 
@@ -42,7 +43,15 @@ class Comparable(Protocol):
         pass
 
     @abstractmethod
+    def __le__(self: "C", other: "C") -> bool:
+        pass
+
+    @abstractmethod
     def __gt__(self: "C", other: "C") -> bool:
+        pass
+
+    @abstractmethod
+    def __ge__(self: "C", other: "C") -> bool:
         pass
 
 
@@ -92,6 +101,11 @@ class Plan(Protocol):
         """
         self.transform_inputs(transformer)
         return transformer(self)
+
+
+class Empty(Plan):
+    def to_s(self, depth: int = 0) -> str:
+        return "Empty"
 
 
 @dataclass
@@ -149,9 +163,18 @@ class Range(Generic[C]):
     left: OptionalBound = UNSET
     right: OptionalBound = UNSET
 
-    def combine(self, other: "Range[C]") -> "Range[C]":
+    def combine(self, other: "Range[C]") -> "Optional[Range[C]]":
         left = self._combine_bounds(self.left, other.left, lambda a, b: a > b)
         right = self._combine_bounds(self.right, other.right, lambda a, b: a < b)
+
+        # Check for an invalid range
+        if isinstance(left, Bound) and isinstance(right, Bound):
+            if left.inclusive and right.inclusive:
+                if left.value > right.value:
+                    return None
+            else:
+                if left.value >= right.value:
+                    return None
 
         return Range(
             left=left,
@@ -184,11 +207,13 @@ class IndexRange(Plan):
     def to_s(self, depth=0):
         if self.range.left is UNSET:
             assert isinstance(self.range.right, Bound)
-            return f"IndexRange: {self.index} {self.range.right.symbol()} {self.range.right.value}"
+            return f"IndexRange: {self.index} {self.range.right.symbol()} {repr(self.range.right.value)}"
         if self.range.right is UNSET:
             assert isinstance(self.range.left, Bound)
-            return f"IndexRange: {self.range.left.value} {self.range.left.symbol()} {self.index}"
-        return f"IndexRange: {self.range.left.value} {self.range.left.symbol()} {self.index} {self.range.right.symbol()} {self.range.right.value}"
+            return (
+                f"IndexRange: {repr(self.range.left.value)} {self.range.left.symbol()} {self.index}"
+            )
+        return f"IndexRange: {repr(self.range.left.value)} {self.range.left.symbol()} {self.index} {self.range.right.symbol()} {repr(self.range.right.value)}"
 
     def __deepcopy__(self, memodict):
         return IndexRange(
@@ -205,7 +230,7 @@ class IndexLookup(Plan):
     value: Any
 
     def to_s(self, depth=0):
-        return f"IndexLookup: {self.index} = {self.value}"
+        return f"IndexLookup: {self.index} = {repr(self.value)}"
 
     def __deepcopy__(self, memodict):
         return IndexLookup(index=self.index, value=deepcopy(self.value))

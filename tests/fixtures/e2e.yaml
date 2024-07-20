@@ -118,7 +118,7 @@ setups:
         - ScanFilter: 1 > a
         - ScanFilter: 3 <= a
     optimized_plan: |-
-      IndexRange: 3 <= SortedDictIndex(a) < 1
+      Empty
     result: []
   - title: Combining ranges leads to =
     condition: a > 1 AND a >= 3 AND a <= 3
@@ -129,9 +129,18 @@ setups:
           - ScanFilter: a >= 3
         - ScanFilter: a <= 3
     optimized_plan: |-
-      IndexLookup: SortedDictIndex(a) = 3
+      IndexRange: 3 <= SortedDictIndex(a) <= 3
     result:
     - 2
+  - title: Conflicting equalities
+    condition: a = 1 AND a = 2
+    plan: |-
+      Intersect
+        - ScanFilter: a = 1
+        - ScanFilter: a = 2
+    optimized_plan: |-
+      Empty
+    result: []
 - objects:
   - a: 1
     b: 2
@@ -211,10 +220,10 @@ setups:
     optimized_plan: |-
       IndexRange: SortedDictIndex(a) <= 2
     result:
-      - 0
-      - 1
-      - 3
-      - 4
+    - 0
+    - 1
+    - 3
+    - 4
   - title: Bisect left (>)
     condition: a > 1
     plan: |-
@@ -222,10 +231,10 @@ setups:
     optimized_plan: |-
       IndexRange: 1 < SortedDictIndex(a)
     result:
-      - 1
-      - 2
-      - 4
-      - 5
+    - 1
+    - 2
+    - 4
+    - 5
   - title: Bisect right (>=)
     condition: a >= 2
     plan: |-
@@ -233,7 +242,30 @@ setups:
     optimized_plan: |-
       IndexRange: 2 <= SortedDictIndex(a)
     result:
-      - 1
-      - 2
-      - 4
-      - 5
+    - 1
+    - 2
+    - 4
+    - 5
+- objects:
+  - a: foo
+  - a: bar
+  - a: baz
+  indexes: [a]
+  tests:
+  - title: String equality
+    condition: a = 'foo'
+    plan: |-
+      ScanFilter: a = 'foo'
+    optimized_plan: |-
+      IndexLookup: HashIndex(a) = 'foo'
+    result:
+    - 0
+  - title: Conflicting equalities, string
+    condition: a = 'foo' AND a = 'bar'
+    plan: |-
+      Intersect
+        - ScanFilter: a = 'foo'
+        - ScanFilter: a = 'bar'
+    optimized_plan: |-
+      Empty
+    result: []

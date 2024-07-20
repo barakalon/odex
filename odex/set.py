@@ -21,7 +21,17 @@ from sqlglot import exp
 from odex.index import Index, InvertedIndex, SortedDictIndex, HashIndex
 from odex.optimize import Chain, Rule
 from odex.parse import Parser
-from odex.plan import Plan, Union, Intersect, ScanFilter, Filter, Planner, IndexLookup, IndexRange
+from odex.plan import (
+    Plan,
+    Union,
+    Intersect,
+    ScanFilter,
+    Filter,
+    Planner,
+    IndexLookup,
+    IndexRange,
+    Empty,
+)
 from odex import condition as cond
 from odex.condition import BinOp, UnaryOp, Attribute, Literal, Condition
 from odex.utils import intersect
@@ -122,6 +132,7 @@ class IndexedSet(MutableSet[T]):
             Intersect: lambda plan: intersect(*(self.execute(i) for i in plan.inputs)),  # type: ignore
             IndexLookup: lambda plan: plan.index.lookup(plan.value),  # type: ignore
             IndexRange: lambda plan: plan.index.range(plan.range),  # type: ignore
+            Empty: lambda plan: set(),  # type: ignore
         }
 
         def match_binop(op: Callable[[Any, Any], Any]) -> Callable[[BinOp, T], Any]:

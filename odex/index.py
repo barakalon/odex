@@ -1,6 +1,6 @@
 from abc import abstractmethod
 from typing import Generic, TypeVar, Set, Any, Optional, Iterable, List, cast, Dict, Type, Callable
-from typing_extensions import Protocol
+from typing_extensions import Protocol, runtime_checkable
 
 from sortedcontainers import SortedDict  # type: ignore
 
@@ -37,6 +37,9 @@ class Index(Protocol[T]):
             `IndexLoop` plan if it can.
         """
 
+
+@runtime_checkable
+class SupportsLookup(Protocol[T]):
     @abstractmethod
     def lookup(self, value: Any) -> Set[T]:
         """
@@ -48,6 +51,9 @@ class Index(Protocol[T]):
             Result set
         """
 
+
+@runtime_checkable
+class SupportsRange(Protocol[T]):
     @abstractmethod
     def range(self, rng: Range) -> Set[T]:
         """
@@ -60,7 +66,7 @@ class Index(Protocol[T]):
         """
 
 
-class HashIndex(Generic[T], Index[T]):
+class HashIndex(Generic[T], Index[T], SupportsLookup[T]):
     """
     Hash table index.
 
@@ -95,9 +101,6 @@ class HashIndex(Generic[T], Index[T]):
     def lookup(self, value: Any) -> Set[T]:
         return self.idx.get(value) or set()
 
-    def range(self, rng: Range) -> Set[T]:
-        raise ValueError(f"{self.__class__.__name__} does not support range queries")
-
     def match(self, condition: BinOp, operand: Condition) -> Optional[Plan]:
         if isinstance(condition, Eq) and isinstance(operand, Literal):
             return IndexLookup(index=self, value=operand.value)
@@ -121,7 +124,7 @@ class HashIndex(Generic[T], Index[T]):
         return f"{self.__class__.__name__}({self.attr})"
 
 
-class SortedDictIndex(Generic[T], HashIndex[T]):
+class SortedDictIndex(Generic[T], HashIndex[T], SupportsRange[T]):
     """
     Same as `HashIndex`, except this uses a `sortedcontainers.SortedDict` as the index
     and supports range queries.
