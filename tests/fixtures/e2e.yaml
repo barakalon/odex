@@ -129,7 +129,7 @@ setups:
           - ScanFilter: a >= 3
         - ScanFilter: a <= 3
     optimized_plan: |-
-      IndexLookup: SortedDictIndex(a) = 3
+      IndexRange: 3 <= SortedDictIndex(a) <= 3
     result:
     - 2
   - title: Conflicting equalities
@@ -139,7 +139,9 @@ setups:
         - ScanFilter: a = 1
         - ScanFilter: a = 2
     optimized_plan: |-
-      Empty
+      Intersect
+        - IndexLookup: SortedDictIndex(a) = 1
+        - IndexLookup: SortedDictIndex(a) = 2
     result: []
 - objects:
   - a: 1
@@ -267,9 +269,11 @@ setups:
         - ScanFilter: a = 'foo'
         - ScanFilter: a = 'foo'
     optimized_plan: |-
-      IndexLookup: HashIndex(a) = 'foo'
+      Intersect
+        - IndexLookup: HashIndex(a) = 'foo'
+        - IndexLookup: HashIndex(a) = 'foo'
     result:
-      - 0
+    - 0
   - title: Conflicting equalities, string
     condition: a = 'foo' AND a = 'bar'
     plan: |-
@@ -277,5 +281,7 @@ setups:
         - ScanFilter: a = 'foo'
         - ScanFilter: a = 'bar'
     optimized_plan: |-
-      Empty
+      Intersect
+        - IndexLookup: HashIndex(a) = 'foo'
+        - IndexLookup: HashIndex(a) = 'bar'
     result: []

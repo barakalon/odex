@@ -181,16 +181,6 @@ class Range(Generic[C]):
             right=right,
         )
 
-    def is_equality(self) -> bool:
-        """Determine if a range can be treated like an equality"""
-        return (
-            isinstance(self.left, Bound)
-            and isinstance(self.right, Bound)
-            and self.left.inclusive
-            and self.right.inclusive
-            and self.left == self.right
-        )
-
     def _combine_bounds(
         self,
         a: OptionalBound,
