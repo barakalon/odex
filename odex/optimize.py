@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Callable, Sequence, Dict, TYPE_CHECKING, List, Union as UnionType
+from typing import Callable, Sequence, Dict, TYPE_CHECKING, List
 from typing_extensions import Protocol
 
 from odex.condition import and_, BinOp, Attribute
@@ -10,10 +10,7 @@ from odex.plan import (
     Intersect,
     Filter,
     ScanFilter,
-    Range,
     IndexRange,
-    IndexLookup,
-    Bound,
     Empty,
 )
 
@@ -92,13 +89,10 @@ class CombineRanges(TransformerRule):
 
     def transform(self, plan: Plan, ctx: Context) -> Plan:
         if isinstance(plan, Intersect):
-            # Group the plans by ones that support ranges and by index
-            plans_by_index: Dict[Index, List[UnionType[IndexLookup, IndexRange]]] = defaultdict(
-                list
-            )
+            plans_by_index: Dict[Index, List[IndexRange]] = defaultdict(list)
             others = []
             for i in plan.inputs:
-                if isinstance(i, (IndexLookup, IndexRange)):
+                if isinstance(i, IndexRange):
                     plans_by_index[i.index].append(i)
                 else:
                     others.append(i)
@@ -110,20 +104,9 @@ class CombineRanges(TransformerRule):
                     inputs.append(plans[0])
                     continue
 
-                ranges = [
-                    # Treat a lookup as a range
-                    Range(
-                        left=Bound(i.value, True),
-                        right=Bound(i.value, True),
-                    )
-                    if isinstance(i, IndexLookup)
-                    else i.range
-                    for i in plans
-                ]
-
-                new_range = ranges[0]
-                for rng in ranges[1:]:
-                    combined = new_range.combine(rng)
+                new_range = plans[0].range
+                for p in plans[1:]:
+                    combined = new_range.combine(p.range)
 
                     # None means there is a range that always evaluates to False
                     if combined is None:
@@ -131,15 +114,12 @@ class CombineRanges(TransformerRule):
                     else:
                         new_range = combined
 
-                if new_range.is_equality():
-                    assert isinstance(new_range.left, Bound)
-                    new_plan: Plan = IndexLookup(index=index, value=new_range.left.value)
-                else:
-                    new_plan = IndexRange(
+                inputs.append(
+                    IndexRange(
                         index=index,
                         range=new_range,
                     )
-                inputs.append(new_plan)
+                )
 
             inputs.extend(others)
 
