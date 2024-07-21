@@ -31,7 +31,7 @@ iset = IndexedSet(
 )
 
 # Filter objects with SQL-like expressions:
-iset.filter("a = 2 AND b = 5") == {X(a=2, b=5)}
+iset.filter("a = 2 AND b = 5")  # {X(a=2, b=5)}
 
 # Or, using the fluent interface:
 iset.filter(
@@ -39,7 +39,7 @@ iset.filter(
         attr("a").eq(2),
         attr("b").eq(5)
     )
-) == {X(a=2, b=5)}
+)
 ```
 
 `IndexedSet` maintains indexes on the given attributes. There are three index types:
